@@ -1,0 +1,84 @@
+version: 0.2
+
+batch:
+  fast-fail: false
+  build-list:
+    - identifier: build1
+      env:
+        variables:
+          GOOS: darwin
+          GOARCH: amd64
+    - identifier: build2
+      env:
+        variables:
+          GOOS: windows
+          GOARCH: amd64
+    - identifier: build3
+      env:
+        variables:
+          GOOS: linux
+          GOARCH: amd64
+
+env:
+  shell: bash
+  variables:
+    PROJECT_NAME: cfn-global-views
+    APP_NAME: cfn-global-views
+    PUBLIC_BUCKET: public-artifact-bucket-382098889955-ap-northeast-1
+
+  parameter-store:
+    GITHUB_TOKEN: /GitHub/MyToken
+    MAIN_ACCESS_KEY: /MainAccount/AWS_ACCESS_KEY_ID
+    MAIN_SECRET_ACCESS_KEY: /MainAccount/AWS_SECRET_ACCESS_KEY
+    SUB_ACCESS_KEY: /SubAccount/AWS_ACCESS_KEY_ID
+    SUB_ACCESS_KEY: /SubAccount/AWS_SECRET_ACCESS_KEY
+
+phases:
+  install:
+    on-failure: ABORT
+    runtime-versions:
+      golang: latest
+    commands:
+      - aws configure --profile default set aws_access_key_id ${MAIN_ACCESS_KEY}
+      - aws configure --profile default set aws_secret_access_key ${MAIN_SECRET_ACCESS_KEY}
+      - aws configure --profile default set region ap-northeast-1
+      - aws configure --profile sub set aws_access_key_id ${SUB_ACCESS_KEY}
+      - aws configure --profile sub set aws_secret_access_key ${SUB_SECRET_ACCESS_KEY}
+      - aws configure --profile sub set region ap-northeast-1
+      - aws sts --profile default  get-caller-identity
+      - aws sts --profile sub  get-caller-identity
+
+      - echo `go version` `whereis go`
+      - wget https://go.dev/dl/go1.19.6.linux-amd64.tar.gz
+      - rm -rf /usr/local/go && tar -C /usr/local -xzf go1.19.6.linux-amd64.tar.gz
+      - export PATH=$PATH:/usr/local/go/bin
+      - echo `go version` `whereis go`
+      - go install github.com/jstemmer/go-junit-report/v2@latest
+
+  pre_build:
+    on-failure: ABORT
+    commands:
+      - go test -v 2>&1 ./... | go-junit-report > ut-report-${GOOS}-${GOARCH}.xml
+
+  build:
+    on-failure: ABORT
+    commands:
+      - go build -o bin/${GOOS}/${GOARCH}/${APP_NAME} ./cmd/main.go
+  
+  post_build:
+    on-failure: ABORT
+    commands:
+      - aws s3 cp bin/${GOOS}/${GOARCH}/${APP_NAME} s3://${PUBLIC_BUCKET}/${PROJECT_NAME}/latest/${GOOS}/${GOARCH}/${APP_NAME}
+
+reports:
+  UnitTestReports:
+    files:
+      - ut-report-${GOOS}-${GOARCH}.xml
+    file-format: JUNITXML
+
+artifacts:
+  files:
+    - '**/*'
+  exclude-paths:
+    - bin/*
+  name: ${BUILD_ID}

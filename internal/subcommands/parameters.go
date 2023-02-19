@@ -4,14 +4,16 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
-	"strings"
+	"regexp"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudformation"
 	"github.com/gocarina/gocsv"
 	"github.com/google/subcommands"
+	"github.com/schollz/progressbar/v3"
 	"golang.org/x/exp/slog"
 
 	"github.com/horietakehiro/cfn-global-views/config"
@@ -68,7 +70,7 @@ func (*ParametersCmd) Usage() string {
 }
 func (c *ParametersCmd) SetFlags(f *flag.FlagSet) {
 	f.StringVar(&c.configFilePath, "c", "", "path to config yaml file")
-	f.StringVar(&c.outFilePath, "o", "", "path to output file path")
+	f.StringVar(&c.outFilePath, "o", "", "path to output file path. if you dont't set, just stdout result")
 	f.StringVar(&c.format, "f", "csv", "output file format (default is csv)")
 	f.BoolVar(&c.verbose, "v", false, "if set, stdout debug log messages")
 }
@@ -81,11 +83,14 @@ func (c *ParametersCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interfa
 		fmt.Println("arg '-c path/to/config.yaml' is required")
 		return subcommands.ExitFailure
 	}
+	if c.format != "csv" {
+		fmt.Println("allowed values for arg '-f' are [csv]")
+	}
 
 	if c.verbose {
 		c.logger = slog.New(slog.NewJSONHandler(os.Stdout))
 	} else {
-		c.logger = slog.New(slog.NewJSONHandler(os.Stdout))
+		c.logger = slog.New(slog.NewJSONHandler(io.Discard))
 	}
 
 	c.config, err = config.GetConfig(c.configFilePath)
@@ -132,13 +137,19 @@ func (c *ParametersCmd) DumpCsv(views []*CfnParametersView) error {
 		}
 	}
 
-	f, err := os.Create(c.outFilePath)
-	if err != nil {
-		return err
+	var writer *os.File
+	var err error
+	if c.outFilePath != "" {
+		writer, err = os.Create(c.outFilePath)
+		if err != nil {
+			return err
+		}
+		defer writer.Close()
+	} else {
+		writer = os.Stdout
 	}
-	defer f.Close()
 
-	err = gocsv.Marshal(csvViews, f)
+	err = gocsv.Marshal(csvViews, writer)
 	if err != nil {
 		return err
 	}
@@ -147,20 +158,36 @@ func (c *ParametersCmd) DumpCsv(views []*CfnParametersView) error {
 
 }
 
+func (c *ParametersCmd) calcTotalViews() int {
+	total := 0
+	for _, accountConfig := range c.config.AccountConfigs {
+		total += len(accountConfig.Filters.Regions)
+	}
+	return total
+}
+
 func (c *ParametersCmd) GetGlobalViews() []*CfnParametersView {
 	views := []*CfnParametersView{}
 
+	var bar *progressbar.ProgressBar
+	if !c.verbose {
+		bar = progressbar.Default(int64(c.calcTotalViews()))
+	}
 	for ai := range c.config.AccountConfigs {
 		for ri := range c.config.AccountConfigs[ai].Filters.Regions {
 
+			if !c.verbose {
+				bar.Add(1)
+			}
+
 			c.logger.Info(
-				fmt.Sprintf("get views from %s/%s", c.config.AccountConfigs[ai].Id, c.config.AccountConfigs[ai].Filters.Regions[ri]),
+				fmt.Sprintf("get cfn views from %s/%s", c.config.AccountConfigs[ai].Id, c.config.AccountConfigs[ai].Filters.Regions[ri]),
 			)
 			// setup cloudformation client
 			var sess *session.Session
 			if c.config.AccountConfigs[ai].Credential.Type == "CLI" {
 				sess = session.Must(session.NewSessionWithOptions(session.Options{
-					Profile: c.config.RootConfig.Credential.ProfileName,
+					Profile: c.config.AccountConfigs[ai].Credential.ProfileName,
 					Config:  *aws.NewConfig().WithRegion(c.config.AccountConfigs[ai].Filters.Regions[ri]),
 				}))
 			} else {
@@ -182,12 +209,14 @@ func (c *ParametersCmd) GetGlobalViews() []*CfnParametersView {
 						Region:      c.config.AccountConfigs[ai].Filters.Regions[ri],
 						Error:       err,
 					})
+
 					break
 				}
 				for _, stack := range describeStacksOutpus.Stacks {
 
-					if strings.HasPrefix(*stack.StackName, c.config.AccountConfigs[ai].Filters.StackNamePrefix) && c.hasTag(stack.Tags, c.config.AccountConfigs[ai].Filters.StackTags) {
-						c.logger.Info(fmt.Sprintf("matched: %s", *stack.StackName))
+					matched, _ := regexp.MatchString(c.config.AccountConfigs[ai].Filters.StackNameRegex, *stack.StackName)
+					if matched && c.hasAllTags(stack.Tags, c.config.AccountConfigs[ai].Filters.StackTags) {
+						c.logger.Info(fmt.Sprintf("matched cfn stack: %s", *stack.StackName))
 						matchedStacks = append(matchedStacks, *stack)
 					}
 				}
@@ -214,11 +243,19 @@ func (c *ParametersCmd) GetGlobalViews() []*CfnParametersView {
 				}
 				var parameters []CfnParameter
 				for _, parameter := range templateSummary.Parameters {
+					description := ""
+					defaultValue := ""
+					if parameter.Description != nil {
+						description = *parameter.Description
+					}
+					if parameter.DefaultValue != nil {
+						defaultValue = *parameter.DefaultValue
+					}
 					parameters = append(parameters, CfnParameter{
 						Name:         *parameter.ParameterKey,
 						Type:         *parameter.ParameterType,
-						Description:  *parameter.Description,
-						DefaultValue: *parameter.DefaultValue,
+						Description:  description,
+						DefaultValue: defaultValue,
 						ActualValue:  c.getActulaParameterValue(parameter, matchedStack.Parameters),
 					})
 				}
@@ -246,16 +283,22 @@ func (c *ParametersCmd) getActulaParameterValue(parameterDeclaration *cloudforma
 	return ""
 }
 
-func (c *ParametersCmd) hasTag(stackTags []*cloudformation.Tag, filterTags []config.Tag) bool {
+func (c *ParametersCmd) hasAllTags(stackTags []*cloudformation.Tag, filterTags []config.Tag) bool {
+	hasAllTags := []bool{}
+
 	if len(filterTags) == 0 {
 		return true
 	}
-	for _, stackTag := range stackTags {
-		for _, filterTag := range filterTags {
+	for _, filterTag := range filterTags {
+		for _, stackTag := range stackTags {
 			if filterTag.Key == *stackTag.Key && filterTag.Value == *stackTag.Value {
-				return true
+				hasAllTags = append(hasAllTags, true)
 			}
 		}
 	}
-	return false
+	if len(hasAllTags) == len(filterTags) {
+		return true
+	} else {
+		return false
+	}
 }

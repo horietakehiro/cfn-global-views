@@ -1,0 +1,42 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+
+Parameters:
+  StackType:
+    Type: String
+  Env:
+    Type: String
+    
+  StringParamWithDefault:
+    Type: String
+    Default: defaultStringValue
+  NumberParamWithDefault:
+    Type: Number
+    Default: 123
+  CdlParamWithDefault:
+    Type: CommaDelimitedList
+    Default: 'default,string,values'
+  ListNumberParamWithDefault:
+    Type: List<Number>
+    Default: '1,2,3'
+  SecretParam:
+    Type: String
+    Default: secret
+    NoEcho: true
+Resources:
+  DummyBucket7EFB6D9F:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Sub cfn-global-views-${StackType}-bucket-${AWS::AccountId}-${AWS::Region}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: APP
+          Value: cfn-global-views
+        - Key: ENV
+          Value: !Ref Env
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete

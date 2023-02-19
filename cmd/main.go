@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"testing"
 
 	"github.com/google/subcommands"
 
@@ -10,6 +11,8 @@ import (
 )
 
 func init() {
+
+	testing.Init()
 
 	subcommands.Register(subcommands.HelpCommand(), "help")
 	subcommands.Register(subcommands.FlagsCommand(), "help")

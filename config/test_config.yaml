@@ -1,0 +1,27 @@
+RootConfig:
+  Credential:
+    Type: "CLI"
+    ProfileName: default
+  Filters:
+    Regions:
+      - "ap-northeast-1"
+      - "ap-northeast-3"
+    StackNameRegex: "^.*CfnGlobalViews.*$"
+    StackTags:
+      - Key: ENV
+        Value: test
+      - Key: APP
+        Value: cfn-global-views
+
+AccountConfigs:
+  - Name: main-account
+    Id: 382098889955
+  - Name: sub-account
+    Id: 321652570799
+    Credential:
+      Type: "CLI"
+      ProfileName: sub
+    Filters:
+      Regions:
+        - "ap-northeast-1"
+        

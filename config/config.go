@@ -8,6 +8,11 @@ import (
 	"github.com/gookit/config/v2/yamlv3"
 )
 
+const (
+	CRED_TYPE_CLI          = "CLI"
+	CRED_TYPE_SERVICE_ROLE = "ServiceRole"
+)
+
 type Credential struct {
 	Type        string
 	ProfileName string
@@ -19,9 +24,9 @@ type Tag struct {
 }
 
 type Filters struct {
-	Regions         []string
-	StackTags       []Tag
-	StackNamePrefix string
+	Regions        []string
+	StackTags      []Tag
+	StackNameRegex string
 }
 
 type RootConfig struct {
@@ -49,29 +54,27 @@ func init() {
 func setDefaultConfig(config *CfnGlobalViewsConfig) error {
 	err := []string{}
 	for i := range config.AccountConfigs {
-		if config.AccountConfigs[i].Credential.ProfileName == "" {
-			if config.RootConfig.Credential.ProfileName != "" {
-				config.AccountConfigs[i].Credential.ProfileName = config.RootConfig.Credential.ProfileName
-			} else {
-				config.AccountConfigs[i].Credential.ProfileName = ""
-			}
+		// Credential.Type
+		if config.AccountConfigs[i].Credential.Type == "" {
+			config.AccountConfigs[i].Credential.Type = config.RootConfig.Credential.Type
 		}
+		// Credential.ProfileName
+		if config.AccountConfigs[i].Credential.ProfileName == "" {
+			config.AccountConfigs[i].Credential.ProfileName = config.RootConfig.Credential.ProfileName
+		}
+
+		// Filters.Regions
 		if len(config.AccountConfigs[i].Filters.Regions) == 0 {
 			config.AccountConfigs[i].Filters.Regions = config.RootConfig.Filters.Regions
 		}
-		if config.AccountConfigs[i].Filters.StackNamePrefix == "" {
-			if config.RootConfig.Filters.StackNamePrefix != "" {
-				config.AccountConfigs[i].Filters.StackNamePrefix = config.RootConfig.Filters.StackNamePrefix
-			} else {
-				config.AccountConfigs[i].Filters.StackNamePrefix = ""
-			}
+		// Filters.StackNameRegex
+		if config.AccountConfigs[i].Filters.StackNameRegex == "" {
+			config.AccountConfigs[i].Filters.StackNameRegex = config.RootConfig.Filters.StackNameRegex
 		}
+
+		// FIlters.StackTags
 		if len(config.AccountConfigs[i].Filters.StackTags) == 0 {
-			if len(config.RootConfig.Filters.StackTags) != 0 {
-				config.AccountConfigs[i].Filters.StackTags = config.RootConfig.Filters.StackTags
-			} else {
-				config.AccountConfigs[i].Filters.StackTags = []Tag{}
-			}
+			config.AccountConfigs[i].Filters.StackTags = config.RootConfig.Filters.StackTags
 		}
 	}
 	if len(err) == 0 {
@@ -84,14 +87,19 @@ func setDefaultConfig(config *CfnGlobalViewsConfig) error {
 func validate(config *CfnGlobalViewsConfig) error {
 	err := []string{}
 	for i, accountConfig := range config.AccountConfigs {
-		if len(accountConfig.Filters.Regions) == 0 && len(config.RootConfig.Filters.Regions) == 0 {
-			err = append(err, fmt.Sprintf("either AccountConfigs[%v].Filter.Regions or RootConfig.Filter.Regions are required", i))
+		// Credentials
+		if accountConfig.Credential.Type == CRED_TYPE_CLI && accountConfig.Credential.ProfileName == "" {
+			err = append(err, fmt.Sprintf(
+				"you must specify AccountConfigs[%v].Credential.ProfileName if you select AccountConfigs[%v].Credential.Type as %s", i, i, CRED_TYPE_CLI,
+			))
 		}
+		// Filters
+		if len(accountConfig.Filters.Regions) == 0 && len(config.RootConfig.Filters.Regions) == 0 {
+			err = append(err, fmt.Sprintf("you must specify at least 1 region at either AccountConfigs[%v].Filter.Regions or RootConfig.Filter.Regions", i))
+		}
+		// Account
 		if accountConfig.Id == "" {
 			err = append(err, fmt.Sprintf("AccountConfigs[%v].Id is required", i))
-		}
-		if len(accountConfig.Filters.StackTags) == 0 && accountConfig.Filters.StackNamePrefix == "" {
-			err = append(err, fmt.Sprintf("either AccountConfigs[%v].Filters.StackTags or AccountConfigs[%v].Filters.StackNamePrefix are required", i, i))
 		}
 	}
 

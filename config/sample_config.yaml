@@ -1,0 +1,33 @@
+RootConfig:
+  Credential:
+    Type: "CLI" # required
+    ProfileName: root-profile # required
+  Filters:
+    Regions: # at least 1 region required
+      - "ap-northeast-1"
+      - "ap-northeast-3"
+    # match stacks whose name startswith StackNameRegex and have all StackTags
+    # if you dont't specify StackNameRegex and StackTags, all stacks are targeted
+    StackNameRegex: "^.*CfnGlobalViews.*$"
+    StackTags:
+      - Key: ENV
+        Value: test
+      - Key: APP
+        Value: cfn-global-views
+
+# if you dont't configure Credential and Filters, those in RootConfig will be propergated
+AccountConfigs:
+  - Name: main-account # optional
+    Id: 123456789012 # required
+  - Name: sub-account
+    Id: 210987654321
+    Credential:
+      Type: "CLI"
+      ProfileName: sub
+    Filters:
+      Regions:
+        - "ap-northeast-1"
+      StackNameRegex: "^CfnGlobalViews.*$"
+      StackTags:
+        - Key: ENV
+          Value: prod

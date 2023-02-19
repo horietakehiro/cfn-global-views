@@ -1,0 +1,20 @@
+version: 0.2
+
+env:
+  shell: bash
+  variables:
+    PROJECT_NAME: cfn-global-views
+    APP_NAME: cfn-global-views
+    PUBLIC_BUCKET: public-artifact-bucket-382098889955-ap-northeast-1
+
+  parameter-store:
+    GITHUB_TOKEN: /GitHub/MyToken
+
+phases:  
+  post_build:
+    on-failure: ABORT
+    commands:
+      - git checkout master
+      - git rebase dev
+      - git push https://${GITHUB_TOKEN}@github.com/horietakehiro/cfn-global-views.git master 
+
