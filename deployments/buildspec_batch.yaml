@@ -49,7 +49,7 @@ phases:
       - aws sts --profile sub  get-caller-identity
 
       - echo `go version` `whereis go`
-      - wget -q https://go.dev/dl/go1.19.6.linux-amd64.tar.gz -O go1.19.tar.gz
+      - wget -q https://go.dev/dl/go1.19.6.linux-amd64.tar.gz
       - rm -rf /usr/local/go && tar -C /usr/local -xzf go1.19.6.linux-amd64.tar.gz
       - export PATH=/usr/local/go/bin:$PATH
       - echo `go version` `whereis go`
