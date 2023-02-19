@@ -49,16 +49,16 @@ phases:
       - aws sts --profile sub  get-caller-identity
 
       - echo `go version` `whereis go`
-      - wget https://go.dev/dl/go1.19.6.linux-amd64.tar.gz
+      - wget -q https://go.dev/dl/go1.19.6.linux-amd64.tar.gz -O go1.19.tar.gz
       - rm -rf /usr/local/go && tar -C /usr/local -xzf go1.19.6.linux-amd64.tar.gz
       - export PATH=$PATH:/usr/local/go/bin
       - echo `go version` `whereis go`
-      - go install github.com/jstemmer/go-junit-report/v2@latest
+      # - go install github.com/jstemmer/go-junit-report/v2@latest
 
   pre_build:
     on-failure: ABORT
     commands:
-      - go test -v 2>&1 ./... | go-junit-report > ut-report-${GOOS}-${GOARCH}.xml
+      - go test -v 2>&1 ./... #| go-junit-report > ut-report-${GOOS}-${GOARCH}.xml
 
   build:
     on-failure: ABORT
@@ -70,11 +70,11 @@ phases:
     commands:
       - aws s3 cp bin/${GOOS}/${GOARCH}/${APP_NAME} s3://${PUBLIC_BUCKET}/${PROJECT_NAME}/latest/${GOOS}/${GOARCH}/${APP_NAME}
 
-reports:
-  UnitTestReports:
-    files:
-      - ut-report-${GOOS}-${GOARCH}.xml
-    file-format: JUNITXML
+# reports:
+#   UnitTestReports:
+#     files:
+#       - ut-report-${GOOS}-${GOARCH}.xml
+#     file-format: JUNITXML
 
 artifacts:
   files:
