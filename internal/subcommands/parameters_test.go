@@ -75,7 +75,7 @@ RootConfig:
     ProfileName: not-exist-profile
   Filters:
     Regions:
-      - "ap-northeast-1"
+      - "not-exist-region"
 AccountConfigs:
   - Name: main-account
     Id: 123456789012
