@@ -18,6 +18,7 @@ batch:
         variables:
           GOOS: linux
           GOARCH: amd64
+          GO19_URL: 
 
 env:
   shell: bash
@@ -49,6 +50,8 @@ phases:
       - aws sts --profile sub  get-caller-identity
 
       - echo `go version` `whereis go`
+      # - wget -q https://go.dev/dl/go1.19.6.${GOOS}-${GOARCH}.tar.gz
+      # - rm -rf /usr/local/go && tar -C /usr/local -xzf go1.19.6.${GOOS}-${GOARCH}.tar.gz
       - wget -q https://go.dev/dl/go1.19.6.linux-amd64.tar.gz
       - rm -rf /usr/local/go && tar -C /usr/local -xzf go1.19.6.linux-amd64.tar.gz
       - export PATH=/usr/local/go/bin:$PATH
@@ -58,7 +61,7 @@ phases:
   pre_build:
     on-failure: ABORT
     commands:
-      - go test -v 2>&1 ./... #| go-junit-report > ut-report-${GOOS}-${GOARCH}.xml
+      - go test -v ./... #| go-junit-report > ut-report-${GOOS}-${GOARCH}.xml
 
   build:
     on-failure: ABORT

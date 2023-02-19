@@ -78,7 +78,7 @@ RootConfig:
       - "ap-northeast-1"
 AccountConfigs:
   - Name: main-account
-    Id: 382098889955
+    Id: 123456789012
 `
 	writeTmpYaml(tmpConfigYaml)
 
