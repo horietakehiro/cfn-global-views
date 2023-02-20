@@ -66,7 +66,8 @@ phases:
   build:
     on-failure: ABORT
     commands:
-      - if [ ${GOOS} == "windows" ]; then
+      - |
+        if [ ${GOOS} == "windows" ]; then
           GOOS=${GOOS} GOARCH=${GOARCH} go build -o bin/${APP_NAME}.exe ./cmd/main.go
         else
           GOOS=${GOOS} GOARCH=${GOARCH} go build -o bin/${APP_NAME} ./cmd/main.go
