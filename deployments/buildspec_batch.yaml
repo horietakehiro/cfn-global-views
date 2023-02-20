@@ -61,7 +61,7 @@ phases:
   pre_build:
     on-failure: ABORT
     commands:
-      - go test -v ./... #| go-junit-report > ut-report-${GOOS}-${GOARCH}.xml
+      - GOOS=linux GOARCH=amd64 go test -v ./... #| go-junit-report > ut-report-${GOOS}-${GOARCH}.xml
 
   build:
     on-failure: ABORT
