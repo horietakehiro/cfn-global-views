@@ -19,6 +19,7 @@ func init() {
 	subcommands.Register(subcommands.CommandsCommand(), "help")
 
 	subcommands.Register(&cfnSubcommands.ParametersCmd{}, "")
+	subcommands.Register(&cfnSubcommands.ResourcesCmd{}, "")
 
 	flag.Parse()
 

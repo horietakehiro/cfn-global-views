@@ -14,43 +14,44 @@ import (
 	"github.com/aws/aws-sdk-go/service/cloudformation"
 	"github.com/gocarina/gocsv"
 	"github.com/google/subcommands"
+	"github.com/horietakehiro/cfn-global-views/config"
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/exp/slog"
-
-	"github.com/horietakehiro/cfn-global-views/config"
 )
 
-type CfnParameter struct {
-	Name         string
-	Type         string
-	Description  string
-	DefaultValue string
-	ActualValue  string
+type CfnResource struct {
+	PhysicalId  string
+	LogicalId   string
+	Type        string
+	Description string
+	Status      string
+	DriftStatus string
 }
 
-type CfnParametersView struct {
+type CfnResourcesView struct {
 	AccountId   string
 	AccountName string
 	Region      string
 	StackName   string
-	Parameters  []CfnParameter
+	Resources   []CfnResource
 	Error       error
 }
 
-type CfnParametersCsvView struct {
-	AccountId             string
-	AccountName           string
-	Region                string
-	StackName             string
-	ParameterName         string
-	ParameterType         string
-	ParameterDescription  string
-	ParameterDefaultValue string
-	ParameterActualValue  string
-	Error                 string
+type CfnResourcesCsvView struct {
+	AccountId           string
+	AccountName         string
+	Region              string
+	StackName           string
+	ResourcePhysicalId  string
+	ResourceLogicalId   string
+	ResourceType        string
+	ResourceDescription string
+	ResourceStatus      string
+	ResourceDriftStatus string
+	Error               string
 }
 
-type ParametersCmd struct {
+type ResourcesCmd struct {
 	subcommands.Command
 	configFilePath string
 	outFilePath    string
@@ -60,26 +61,24 @@ type ParametersCmd struct {
 	config         *config.CfnGlobalViewsConfig
 }
 
-func (*ParametersCmd) Name() string {
-	return "parameters"
+func (*ResourcesCmd) Name() string {
+	return "resources"
 }
-func (*ParametersCmd) Synopsis() string {
-	return "list cfn parameters"
+func (*ResourcesCmd) Synopsis() string {
+	return "list cfn resources"
 }
-func (*ParametersCmd) Usage() string {
-	return "parameters -c path/to/config.yaml"
+func (*ResourcesCmd) Usage() string {
+	return "resources -c path/to/config.yaml"
 }
-func (c *ParametersCmd) SetFlags(f *flag.FlagSet) {
+func (c *ResourcesCmd) SetFlags(f *flag.FlagSet) {
 	f.StringVar(&c.configFilePath, "c", "", "path to config yaml file")
 	f.StringVar(&c.outFilePath, "o", "", "path to output file path. if you dont't set, just stdout result")
 	f.StringVar(&c.format, "f", "csv", "output data format [csv, json] (default is csv)")
 	f.BoolVar(&c.verbose, "v", false, "if set, stdout debug log messages")
 }
 
-func (c *ParametersCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
-
+func (c *ResourcesCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	var err error
-
 	if c.configFilePath == "" {
 		fmt.Println("arg '-c path/to/config.yaml' is required")
 		return subcommands.ExitFailure
@@ -118,8 +117,8 @@ func (c *ParametersCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interfa
 	return subcommands.ExitSuccess
 }
 
-func (c *ParametersCmd) DumpCsv(views []*CfnParametersView) error {
-	csvViews := []CfnParametersCsvView{}
+func (c *ResourcesCmd) DumpCsv(views []*CfnResourcesView) error {
+	csvViews := []CfnResourcesCsvView{}
 
 	for _, view := range views {
 		var errorString string
@@ -128,18 +127,19 @@ func (c *ParametersCmd) DumpCsv(views []*CfnParametersView) error {
 		} else {
 			errorString = view.Error.Error()
 		}
-		for _, parameter := range view.Parameters {
-			csvViews = append(csvViews, CfnParametersCsvView{
-				AccountId:             view.AccountId,
-				AccountName:           view.AccountName,
-				Region:                view.Region,
-				StackName:             view.StackName,
-				ParameterName:         parameter.Name,
-				ParameterType:         parameter.Type,
-				ParameterDescription:  parameter.Description,
-				ParameterDefaultValue: parameter.DefaultValue,
-				ParameterActualValue:  parameter.ActualValue,
-				Error:                 errorString,
+		for _, resource := range view.Resources {
+			csvViews = append(csvViews, CfnResourcesCsvView{
+				AccountId:           view.AccountId,
+				AccountName:         view.AccountName,
+				Region:              view.Region,
+				StackName:           view.StackName,
+				ResourcePhysicalId:  resource.PhysicalId,
+				ResourceLogicalId:   resource.LogicalId,
+				ResourceType:        resource.Type,
+				ResourceDescription: resource.Description,
+				ResourceStatus:      resource.Status,
+				ResourceDriftStatus: resource.DriftStatus,
+				Error:               errorString,
 			})
 		}
 	}
@@ -165,7 +165,7 @@ func (c *ParametersCmd) DumpCsv(views []*CfnParametersView) error {
 
 }
 
-func (c *ParametersCmd) DumpJson(views []*CfnParametersView) error {
+func (c *ResourcesCmd) DumpJson(views []*CfnResourcesView) error {
 
 	jsonViews, err := json.Marshal(views)
 	if err != nil {
@@ -192,7 +192,7 @@ func (c *ParametersCmd) DumpJson(views []*CfnParametersView) error {
 
 }
 
-func (c *ParametersCmd) calcTotalViews() int {
+func (c *ResourcesCmd) calcTotalViews() int {
 	total := 0
 	for _, accountConfig := range c.config.AccountConfigs {
 		total += len(accountConfig.Filters.Regions)
@@ -200,8 +200,8 @@ func (c *ParametersCmd) calcTotalViews() int {
 	return total
 }
 
-func (c *ParametersCmd) GetGlobalViews() []*CfnParametersView {
-	views := []*CfnParametersView{}
+func (c *ResourcesCmd) GetGlobalViews() []*CfnResourcesView {
+	views := []*CfnResourcesView{}
 
 	var bar *progressbar.ProgressBar
 	if !c.verbose {
@@ -237,7 +237,7 @@ func (c *ParametersCmd) GetGlobalViews() []*CfnParametersView {
 			for {
 				describeStacksOutpus, err := cfn.DescribeStacks(&cloudformation.DescribeStacksInput{})
 				if err != nil {
-					views = append(views, &CfnParametersView{
+					views = append(views, &CfnResourcesView{
 						AccountId:   c.config.AccountConfigs[ai].Id,
 						AccountName: c.config.AccountConfigs[ai].Name,
 						Region:      c.config.AccountConfigs[ai].Filters.Regions[ri],
@@ -260,13 +260,13 @@ func (c *ParametersCmd) GetGlobalViews() []*CfnParametersView {
 				}
 			}
 
-			// describe matched stacks' parameters definitions
+			// describe matched stacks' resources
 			for _, matchedStack := range matchedStacks {
-				templateSummary, err := cfn.GetTemplateSummary(&cloudformation.GetTemplateSummaryInput{
+				stackResources, err := cfn.DescribeStackResources(&cloudformation.DescribeStackResourcesInput{
 					StackName: matchedStack.StackName,
 				})
 				if err != nil {
-					views = append(views, &CfnParametersView{
+					views = append(views, &CfnResourcesView{
 						AccountId:   c.config.AccountConfigs[ai].Id,
 						AccountName: c.config.AccountConfigs[ai].Name,
 						Region:      c.config.AccountConfigs[ai].Filters.Regions[ri],
@@ -275,49 +275,44 @@ func (c *ParametersCmd) GetGlobalViews() []*CfnParametersView {
 					})
 					break
 				}
-				var parameters []CfnParameter
-				for _, parameter := range templateSummary.Parameters {
+				var resources []CfnResource
+				for _, resource := range stackResources.StackResources {
 					description := ""
-					defaultValue := ""
-					if parameter.Description != nil {
-						description = *parameter.Description
+					driftStatus := ""
+					if resource.Description != nil {
+						description = *resource.Description
 					}
-					if parameter.DefaultValue != nil {
-						defaultValue = *parameter.DefaultValue
+					if resource.DriftInformation.StackResourceDriftStatus != nil {
+						driftStatus = *resource.DriftInformation.StackResourceDriftStatus
 					}
-					parameters = append(parameters, CfnParameter{
-						Name:         *parameter.ParameterKey,
-						Type:         *parameter.ParameterType,
-						Description:  description,
-						DefaultValue: defaultValue,
-						ActualValue:  c.getActulaParameterValue(parameter, matchedStack.Parameters),
+
+					resources = append(resources, CfnResource{
+						PhysicalId:  *resource.PhysicalResourceId,
+						LogicalId:   *resource.LogicalResourceId,
+						Type:        *resource.ResourceType,
+						Description: description,
+						Status:      *resource.ResourceStatus,
+						DriftStatus: driftStatus,
 					})
 				}
-				views = append(views, &CfnParametersView{
+				views = append(views, &CfnResourcesView{
 					AccountId:   c.config.AccountConfigs[ai].Id,
 					AccountName: c.config.AccountConfigs[ai].Name,
 					Region:      c.config.AccountConfigs[ai].Filters.Regions[ri],
 					StackName:   *matchedStack.StackName,
-					Parameters:  parameters,
+					Resources:   resources,
 					Error:       nil,
 				})
 			}
 		}
 	}
 
+	// sort results
+
 	return views
 }
 
-func (c *ParametersCmd) getActulaParameterValue(parameterDeclaration *cloudformation.ParameterDeclaration, parameters []*cloudformation.Parameter) string {
-	for _, parameter := range parameters {
-		if *parameterDeclaration.ParameterKey == *parameter.ParameterKey {
-			return *parameter.ParameterValue
-		}
-	}
-	return ""
-}
-
-func (c *ParametersCmd) hasAllTags(stackTags []*cloudformation.Tag, filterTags []config.Tag) bool {
+func (c *ResourcesCmd) hasAllTags(stackTags []*cloudformation.Tag, filterTags []config.Tag) bool {
 	hasAllTags := []bool{}
 
 	if len(filterTags) == 0 {
