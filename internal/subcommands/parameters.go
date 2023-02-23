@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sort"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -231,7 +232,7 @@ func (c *ParametersCmd) GetGlobalViews() []*CfnParametersView {
 			go func(ch chan []*CfnParametersView, ai, ri int) {
 				views := []*CfnParametersView{}
 				c.logger.Info(
-					fmt.Sprintf("get cfn views from %s/%s", c.config.AccountConfigs[ai].Id, c.config.AccountConfigs[ai].Filters.Regions[ri]),
+					"get cfn views", "accountId", c.config.AccountConfigs[ai].Id, "region", c.config.AccountConfigs[ai].Filters.Regions[ri],
 				)
 				// setup cloudformation client
 				var sess *session.Session
@@ -266,7 +267,7 @@ func (c *ParametersCmd) GetGlobalViews() []*CfnParametersView {
 
 						matched, _ := regexp.MatchString(c.config.AccountConfigs[ai].Filters.StackNameRegex, *stack.StackName)
 						if matched && c.hasAllTags(stack.Tags, c.config.AccountConfigs[ai].Filters.StackTags) {
-							c.logger.Info(fmt.Sprintf("matched cfn stack: %s", *stack.StackName), "AccountId", c.config.AccountConfigs[ai].Id, "Region", c.config.AccountConfigs[ai].Filters.Regions[ri])
+							c.logger.Info(fmt.Sprintf("matched cfn stack: %s", *stack.StackName), "accountId", c.config.AccountConfigs[ai].Id, "region", c.config.AccountConfigs[ai].Filters.Regions[ri])
 							matchedStacks = append(matchedStacks, *stack)
 						}
 					}
@@ -335,7 +336,13 @@ func (c *ParametersCmd) GetGlobalViews() []*CfnParametersView {
 	for views := range channel {
 		globalViews = append(globalViews, views...)
 	}
+
+	sort.Slice(globalViews, func(i, j int) bool { return globalViews[i].AccountId < globalViews[j].AccountId })
+	sort.Slice(globalViews, func(i, j int) bool { return globalViews[i].Region < globalViews[j].Region })
+	sort.Slice(globalViews, func(i, j int) bool { return globalViews[i].StackName < globalViews[j].StackName })
+
 	return globalViews
+
 }
 
 func (c *ParametersCmd) getActulaParameterValue(parameterDeclaration *cloudformation.ParameterDeclaration, parameters []*cloudformation.Parameter) string {

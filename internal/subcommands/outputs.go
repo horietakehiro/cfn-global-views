@@ -15,44 +15,41 @@ import (
 	"github.com/aws/aws-sdk-go/service/cloudformation"
 	"github.com/gocarina/gocsv"
 	"github.com/google/subcommands"
-	"github.com/horietakehiro/cfn-global-views/config"
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/exp/slog"
+
+	"github.com/horietakehiro/cfn-global-views/config"
 )
 
-type CfnResource struct {
-	PhysicalId  string
-	LogicalId   string
-	Type        string
+type CfnOutput struct {
+	Name        string
 	Description string
-	Status      string
-	DriftStatus string
+	Value       string
+	ExportName  string
 }
 
-type CfnResourcesView struct {
+type CfnOutputsView struct {
 	AccountId   string
 	AccountName string
 	Region      string
 	StackName   string
-	Resources   []CfnResource
+	Outputs     []CfnOutput
 	Error       error
 }
 
-type CfnResourcesCsvView struct {
-	AccountId           string
-	AccountName         string
-	Region              string
-	StackName           string
-	ResourcePhysicalId  string
-	ResourceLogicalId   string
-	ResourceType        string
-	ResourceDescription string
-	ResourceStatus      string
-	ResourceDriftStatus string
-	Error               string
+type CfnOutputsCsvView struct {
+	AccountId         string
+	AccountName       string
+	Region            string
+	StackName         string
+	OutputName        string
+	OutputValue       string
+	OutputDescription string
+	OutputExportName  string
+	Error             string
 }
 
-type ResourcesCmd struct {
+type OutputsCmd struct {
 	subcommands.Command
 	configFilePath string
 	outFilePath    string
@@ -62,24 +59,26 @@ type ResourcesCmd struct {
 	config         *config.CfnGlobalViewsConfig
 }
 
-func (*ResourcesCmd) Name() string {
-	return "resources"
+func (*OutputsCmd) Name() string {
+	return "outputs"
 }
-func (*ResourcesCmd) Synopsis() string {
-	return "list cfn resources"
+func (*OutputsCmd) Synopsis() string {
+	return "list cfn outputs"
 }
-func (*ResourcesCmd) Usage() string {
-	return "resources -c path/to/config.yaml"
+func (*OutputsCmd) Usage() string {
+	return "outputs -c path/to/config.yaml"
 }
-func (c *ResourcesCmd) SetFlags(f *flag.FlagSet) {
+func (c *OutputsCmd) SetFlags(f *flag.FlagSet) {
 	f.StringVar(&c.configFilePath, "c", "", "path to config yaml file")
 	f.StringVar(&c.outFilePath, "o", "", "path to output file path. if you dont't set, just stdout result")
 	f.StringVar(&c.format, "f", "csv", "output data format [csv, json] (default is csv)")
 	f.BoolVar(&c.verbose, "v", false, "if set, stdout debug log messages")
 }
 
-func (c *ResourcesCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
+func (c *OutputsCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
+
 	var err error
+
 	if c.configFilePath == "" {
 		fmt.Println("arg '-c path/to/config.yaml' is required")
 		return subcommands.ExitFailure
@@ -118,8 +117,8 @@ func (c *ResourcesCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interfac
 	return subcommands.ExitSuccess
 }
 
-func (c *ResourcesCmd) DumpCsv(views []*CfnResourcesView) error {
-	csvViews := []CfnResourcesCsvView{}
+func (c *OutputsCmd) DumpCsv(views []*CfnOutputsView) error {
+	csvViews := []CfnOutputsCsvView{}
 
 	for _, view := range views {
 		var errorString string
@@ -128,34 +127,30 @@ func (c *ResourcesCmd) DumpCsv(views []*CfnResourcesView) error {
 		} else {
 			errorString = view.Error.Error()
 		}
-		if len(view.Resources) == 0 {
-			csvViews = append(csvViews, CfnResourcesCsvView{
-				AccountId:           view.AccountId,
-				AccountName:         view.AccountName,
-				Region:              view.Region,
-				StackName:           view.StackName,
-				ResourcePhysicalId:  "",
-				ResourceLogicalId:   "",
-				ResourceType:        "",
-				ResourceDescription: "",
-				ResourceStatus:      "",
-				ResourceDriftStatus: "",
-				Error:               errorString,
+		if len(view.Outputs) == 0 {
+			csvViews = append(csvViews, CfnOutputsCsvView{
+				AccountId:         view.AccountId,
+				AccountName:       view.AccountName,
+				Region:            view.Region,
+				StackName:         view.StackName,
+				OutputName:        "",
+				OutputValue:       "",
+				OutputDescription: "",
+				OutputExportName:  "",
+				Error:             errorString,
 			})
 		}
-		for _, resource := range view.Resources {
-			csvViews = append(csvViews, CfnResourcesCsvView{
-				AccountId:           view.AccountId,
-				AccountName:         view.AccountName,
-				Region:              view.Region,
-				StackName:           view.StackName,
-				ResourcePhysicalId:  resource.PhysicalId,
-				ResourceLogicalId:   resource.LogicalId,
-				ResourceType:        resource.Type,
-				ResourceDescription: resource.Description,
-				ResourceStatus:      resource.Status,
-				ResourceDriftStatus: resource.DriftStatus,
-				Error:               errorString,
+		for _, output := range view.Outputs {
+			csvViews = append(csvViews, CfnOutputsCsvView{
+				AccountId:         view.AccountId,
+				AccountName:       view.AccountName,
+				Region:            view.Region,
+				StackName:         view.StackName,
+				OutputName:        output.Name,
+				OutputValue:       output.Value,
+				OutputDescription: output.Description,
+				OutputExportName:  output.ExportName,
+				Error:             errorString,
 			})
 		}
 	}
@@ -181,7 +176,7 @@ func (c *ResourcesCmd) DumpCsv(views []*CfnResourcesView) error {
 
 }
 
-func (c *ResourcesCmd) DumpJson(views []*CfnResourcesView) error {
+func (c *OutputsCmd) DumpJson(views []*CfnOutputsView) error {
 
 	jsonViews, err := json.Marshal(views)
 	if err != nil {
@@ -208,7 +203,7 @@ func (c *ResourcesCmd) DumpJson(views []*CfnResourcesView) error {
 
 }
 
-func (c *ResourcesCmd) calcTotalViews() int {
+func (c *OutputsCmd) calcTotalViews() int {
 	total := 0
 	for _, accountConfig := range c.config.AccountConfigs {
 		total += len(accountConfig.Filters.Regions)
@@ -216,12 +211,12 @@ func (c *ResourcesCmd) calcTotalViews() int {
 	return total
 }
 
-func (c *ResourcesCmd) GetGlobalViews() []*CfnResourcesView {
-	globalViews := []*CfnResourcesView{}
+func (c *OutputsCmd) GetGlobalViews() []*CfnOutputsView {
+	globalViews := []*CfnOutputsView{}
 
 	totalViews := c.calcTotalViews()
 	progress := 0
-	channel := make(chan []*CfnResourcesView, totalViews)
+	channel := make(chan []*CfnOutputsView, totalViews)
 
 	var bar *progressbar.ProgressBar
 	if !c.verbose {
@@ -230,8 +225,8 @@ func (c *ResourcesCmd) GetGlobalViews() []*CfnResourcesView {
 	for ai := range c.config.AccountConfigs {
 		for ri := range c.config.AccountConfigs[ai].Filters.Regions {
 
-			go func(ch chan []*CfnResourcesView, ai, ri int) {
-				views := []*CfnResourcesView{}
+			go func(ch chan []*CfnOutputsView, ai, ri int) {
+				views := []*CfnOutputsView{}
 				c.logger.Info(
 					"get cfn views", "accountId", c.config.AccountConfigs[ai].Id, "region", c.config.AccountConfigs[ai].Filters.Regions[ri],
 				)
@@ -255,7 +250,7 @@ func (c *ResourcesCmd) GetGlobalViews() []*CfnResourcesView {
 				for {
 					describeStacksOutpus, err := cfn.DescribeStacks(&cloudformation.DescribeStacksInput{})
 					if err != nil {
-						views = append(views, &CfnResourcesView{
+						views = append(views, &CfnOutputsView{
 							AccountId:   c.config.AccountConfigs[ai].Id,
 							AccountName: c.config.AccountConfigs[ai].Name,
 							Region:      c.config.AccountConfigs[ai].Filters.Regions[ri],
@@ -278,46 +273,31 @@ func (c *ResourcesCmd) GetGlobalViews() []*CfnResourcesView {
 					}
 				}
 
-				// describe matched stacks' parameters definitions
+				// describe matched stacks' output definitions
 				for _, matchedStack := range matchedStacks {
-					stackResources, err := cfn.DescribeStackResources(&cloudformation.DescribeStackResourcesInput{
-						StackName: matchedStack.StackName,
-					})
-					if err != nil {
-						views = append(views, &CfnResourcesView{
-							AccountId:   c.config.AccountConfigs[ai].Id,
-							AccountName: c.config.AccountConfigs[ai].Name,
-							Region:      c.config.AccountConfigs[ai].Filters.Regions[ri],
-							StackName:   *matchedStack.StackName,
-							Error:       err,
-						})
-						break
-					}
-					var resources []CfnResource
-					for _, resource := range stackResources.StackResources {
+					var outputs []CfnOutput
+					for _, output := range matchedStack.Outputs {
 						description := ""
-						driftStatus := ""
-						if d := resource.Description; d != nil {
+						exportName := ""
+						if d := output.Description; d != nil {
 							description = *d
 						}
-						if d := resource.DriftInformation.StackResourceDriftStatus; d != nil {
-							driftStatus = *d
+						if d := output.ExportName; d != nil {
+							exportName = *d
 						}
-						resources = append(resources, CfnResource{
-							PhysicalId:  *resource.PhysicalResourceId,
-							LogicalId:   *resource.LogicalResourceId,
-							Type:        *resource.ResourceType,
-							Status:      *resource.ResourceStatus,
+						outputs = append(outputs, CfnOutput{
+							Name:        *output.OutputKey,
+							Value:       *output.OutputValue,
 							Description: description,
-							DriftStatus: driftStatus,
+							ExportName:  exportName,
 						})
 					}
-					views = append(views, &CfnResourcesView{
+					views = append(views, &CfnOutputsView{
 						AccountId:   c.config.AccountConfigs[ai].Id,
 						AccountName: c.config.AccountConfigs[ai].Name,
 						Region:      c.config.AccountConfigs[ai].Filters.Regions[ri],
 						StackName:   *matchedStack.StackName,
-						Resources:   resources,
+						Outputs:     outputs,
 						Error:       nil,
 					})
 				}
@@ -347,7 +327,7 @@ func (c *ResourcesCmd) GetGlobalViews() []*CfnResourcesView {
 
 }
 
-func (c *ResourcesCmd) hasAllTags(stackTags []*cloudformation.Tag, filterTags []config.Tag) bool {
+func (c *OutputsCmd) hasAllTags(stackTags []*cloudformation.Tag, filterTags []config.Tag) bool {
 	hasAllTags := []bool{}
 
 	if len(filterTags) == 0 {

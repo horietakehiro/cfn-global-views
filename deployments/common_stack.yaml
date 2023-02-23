@@ -40,3 +40,8 @@ Resources:
           Value: !Ref Env
     UpdateReplacePolicy: Delete
     DeletionPolicy: Delete
+
+Outputs:
+  output:
+    Description: output value
+    Value: !Ref DummyBucket7EFB6D9F
