@@ -61,17 +61,24 @@ phases:
   pre_build:
     on-failure: ABORT
     commands:
-      - go test -v ./... #| go-junit-report > ut-report-${GOOS}-${GOARCH}.xml
+      - GOOS=linux GOARCH=amd64 go test -v ./... #| go-junit-report > ut-report-${GOOS}-${GOARCH}.xml
 
   build:
     on-failure: ABORT
     commands:
-      - go build -o bin/${GOOS}/${GOARCH}/${APP_NAME} ./cmd/main.go
+      - |
+        if [ ${GOOS} == "windows" ]; then
+          GOOS=${GOOS} GOARCH=${GOARCH} go build -o bin/${APP_NAME}.exe ./cmd/main.go
+        else
+          GOOS=${GOOS} GOARCH=${GOARCH} go build -o bin/${APP_NAME} ./cmd/main.go
+        fi
   
   post_build:
     on-failure: ABORT
     commands:
-      - aws s3 cp bin/${GOOS}/${GOARCH}/${APP_NAME} s3://${PUBLIC_BUCKET}/${PROJECT_NAME}/latest/${GOOS}/${GOARCH}/${APP_NAME}
+      - zip -j ${APP_NAME}.zip bin/* config/sample_config.yaml
+      - aws s3 cp ${APP_NAME}.zip s3://${PUBLIC_BUCKET}/${PROJECT_NAME}/latest/${GOOS}/${GOARCH}/
+      - rm -f ${APP_NAME}.zip
 
 # reports:
 #   UnitTestReports:

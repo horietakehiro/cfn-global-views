@@ -128,6 +128,20 @@ func (c *ParametersCmd) DumpCsv(views []*CfnParametersView) error {
 		} else {
 			errorString = view.Error.Error()
 		}
+		if len(view.Parameters) == 0 {
+			csvViews = append(csvViews, CfnParametersCsvView{
+				AccountId:             view.AccountId,
+				AccountName:           view.AccountName,
+				Region:                view.Region,
+				StackName:             view.StackName,
+				ParameterName:         "",
+				ParameterType:         "",
+				ParameterDescription:  "",
+				ParameterDefaultValue: "",
+				ParameterActualValue:  "",
+				Error:                 errorString,
+			})
+		}
 		for _, parameter := range view.Parameters {
 			csvViews = append(csvViews, CfnParametersCsvView{
 				AccountId:             view.AccountId,
@@ -201,111 +215,127 @@ func (c *ParametersCmd) calcTotalViews() int {
 }
 
 func (c *ParametersCmd) GetGlobalViews() []*CfnParametersView {
-	views := []*CfnParametersView{}
+	globalViews := []*CfnParametersView{}
+
+	totalViews := c.calcTotalViews()
+	progress := 0
+	channel := make(chan []*CfnParametersView, totalViews)
 
 	var bar *progressbar.ProgressBar
 	if !c.verbose {
-		bar = progressbar.Default(int64(c.calcTotalViews()))
+		bar = progressbar.Default(int64(totalViews))
 	}
 	for ai := range c.config.AccountConfigs {
 		for ri := range c.config.AccountConfigs[ai].Filters.Regions {
 
-			if !c.verbose {
-				bar.Add(1)
-			}
-
-			c.logger.Info(
-				fmt.Sprintf("get cfn views from %s/%s", c.config.AccountConfigs[ai].Id, c.config.AccountConfigs[ai].Filters.Regions[ri]),
-			)
-			// setup cloudformation client
-			var sess *session.Session
-			if c.config.AccountConfigs[ai].Credential.Type == "CLI" {
-				sess = session.Must(session.NewSessionWithOptions(session.Options{
-					Profile: c.config.AccountConfigs[ai].Credential.ProfileName,
-					Config:  *aws.NewConfig().WithRegion(c.config.AccountConfigs[ai].Filters.Regions[ri]),
-				}))
-			} else {
-				sess = session.Must(session.NewSessionWithOptions(session.Options{
-					Config: *aws.NewConfig().WithRegion(c.config.AccountConfigs[ai].Filters.Regions[ri]),
-				}))
-			}
-
-			cfn := cloudformation.New(sess)
-
-			// describe all stacks at the account and region and filter them
-			var matchedStacks []cloudformation.Stack
-			for {
-				describeStacksOutpus, err := cfn.DescribeStacks(&cloudformation.DescribeStacksInput{})
-				if err != nil {
-					views = append(views, &CfnParametersView{
-						AccountId:   c.config.AccountConfigs[ai].Id,
-						AccountName: c.config.AccountConfigs[ai].Name,
-						Region:      c.config.AccountConfigs[ai].Filters.Regions[ri],
-						Error:       err,
-					})
-
-					break
+			go func(ch chan []*CfnParametersView, ai, ri int) {
+				views := []*CfnParametersView{}
+				c.logger.Info(
+					fmt.Sprintf("get cfn views from %s/%s", c.config.AccountConfigs[ai].Id, c.config.AccountConfigs[ai].Filters.Regions[ri]),
+				)
+				// setup cloudformation client
+				var sess *session.Session
+				if c.config.AccountConfigs[ai].Credential.Type == "CLI" {
+					sess = session.Must(session.NewSessionWithOptions(session.Options{
+						Profile: c.config.AccountConfigs[ai].Credential.ProfileName,
+						Config:  *aws.NewConfig().WithRegion(c.config.AccountConfigs[ai].Filters.Regions[ri]),
+					}))
+				} else {
+					sess = session.Must(session.NewSessionWithOptions(session.Options{
+						Config: *aws.NewConfig().WithRegion(c.config.AccountConfigs[ai].Filters.Regions[ri]),
+					}))
 				}
-				for _, stack := range describeStacksOutpus.Stacks {
 
-					matched, _ := regexp.MatchString(c.config.AccountConfigs[ai].Filters.StackNameRegex, *stack.StackName)
-					if matched && c.hasAllTags(stack.Tags, c.config.AccountConfigs[ai].Filters.StackTags) {
-						c.logger.Info(fmt.Sprintf("matched cfn stack: %s", *stack.StackName))
-						matchedStacks = append(matchedStacks, *stack)
+				cfn := cloudformation.New(sess)
+
+				// describe all stacks at the account and region and filter them
+				var matchedStacks []cloudformation.Stack
+				for {
+					describeStacksOutpus, err := cfn.DescribeStacks(&cloudformation.DescribeStacksInput{})
+					if err != nil {
+						views = append(views, &CfnParametersView{
+							AccountId:   c.config.AccountConfigs[ai].Id,
+							AccountName: c.config.AccountConfigs[ai].Name,
+							Region:      c.config.AccountConfigs[ai].Filters.Regions[ri],
+							Error:       err,
+						})
+
+						break
+					}
+					for _, stack := range describeStacksOutpus.Stacks {
+
+						matched, _ := regexp.MatchString(c.config.AccountConfigs[ai].Filters.StackNameRegex, *stack.StackName)
+						if matched && c.hasAllTags(stack.Tags, c.config.AccountConfigs[ai].Filters.StackTags) {
+							c.logger.Info(fmt.Sprintf("matched cfn stack: %s", *stack.StackName), "AccountId", c.config.AccountConfigs[ai].Id, "Region", c.config.AccountConfigs[ai].Filters.Regions[ri])
+							matchedStacks = append(matchedStacks, *stack)
+						}
+					}
+
+					if describeStacksOutpus.NextToken == nil {
+						break
 					}
 				}
 
-				if describeStacksOutpus.NextToken == nil {
-					break
-				}
-			}
-
-			// describe matched stacks' parameters definitions
-			for _, matchedStack := range matchedStacks {
-				templateSummary, err := cfn.GetTemplateSummary(&cloudformation.GetTemplateSummaryInput{
-					StackName: matchedStack.StackName,
-				})
-				if err != nil {
+				// describe matched stacks' parameters definitions
+				for _, matchedStack := range matchedStacks {
+					templateSummary, err := cfn.GetTemplateSummary(&cloudformation.GetTemplateSummaryInput{
+						StackName: matchedStack.StackName,
+					})
+					if err != nil {
+						views = append(views, &CfnParametersView{
+							AccountId:   c.config.AccountConfigs[ai].Id,
+							AccountName: c.config.AccountConfigs[ai].Name,
+							Region:      c.config.AccountConfigs[ai].Filters.Regions[ri],
+							StackName:   *matchedStack.StackName,
+							Error:       err,
+						})
+						break
+					}
+					var parameters []CfnParameter
+					for _, parameter := range templateSummary.Parameters {
+						description := ""
+						defaultValue := ""
+						if parameter.Description != nil {
+							description = *parameter.Description
+						}
+						if parameter.DefaultValue != nil {
+							defaultValue = *parameter.DefaultValue
+						}
+						parameters = append(parameters, CfnParameter{
+							Name:         *parameter.ParameterKey,
+							Type:         *parameter.ParameterType,
+							Description:  description,
+							DefaultValue: defaultValue,
+							ActualValue:  c.getActulaParameterValue(parameter, matchedStack.Parameters),
+						})
+					}
 					views = append(views, &CfnParametersView{
 						AccountId:   c.config.AccountConfigs[ai].Id,
 						AccountName: c.config.AccountConfigs[ai].Name,
 						Region:      c.config.AccountConfigs[ai].Filters.Regions[ri],
 						StackName:   *matchedStack.StackName,
-						Error:       err,
-					})
-					break
-				}
-				var parameters []CfnParameter
-				for _, parameter := range templateSummary.Parameters {
-					description := ""
-					defaultValue := ""
-					if parameter.Description != nil {
-						description = *parameter.Description
-					}
-					if parameter.DefaultValue != nil {
-						defaultValue = *parameter.DefaultValue
-					}
-					parameters = append(parameters, CfnParameter{
-						Name:         *parameter.ParameterKey,
-						Type:         *parameter.ParameterType,
-						Description:  description,
-						DefaultValue: defaultValue,
-						ActualValue:  c.getActulaParameterValue(parameter, matchedStack.Parameters),
+						Parameters:  parameters,
+						Error:       nil,
 					})
 				}
-				views = append(views, &CfnParametersView{
-					AccountId:   c.config.AccountConfigs[ai].Id,
-					AccountName: c.config.AccountConfigs[ai].Name,
-					Region:      c.config.AccountConfigs[ai].Filters.Regions[ri],
-					StackName:   *matchedStack.StackName,
-					Parameters:  parameters,
-					Error:       nil,
-				})
-			}
+
+				ch <- views
+
+				if !c.verbose {
+					bar.Add(1)
+				}
+				progress += 1
+				if progress == totalViews {
+					close(ch)
+				}
+			}(channel, ai, ri)
 		}
 	}
 
-	return views
+	for views := range channel {
+		globalViews = append(globalViews, views...)
+	}
+	return globalViews
 }
 
 func (c *ParametersCmd) getActulaParameterValue(parameterDeclaration *cloudformation.ParameterDeclaration, parameters []*cloudformation.Parameter) string {
