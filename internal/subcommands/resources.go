@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -17,6 +19,7 @@ import (
 	"github.com/google/subcommands"
 	"github.com/horietakehiro/cfn-global-views/config"
 	"github.com/schollz/progressbar/v3"
+	"github.com/xuri/excelize/v2"
 	"golang.org/x/exp/slog"
 )
 
@@ -74,7 +77,7 @@ func (*ResourcesCmd) Usage() string {
 func (c *ResourcesCmd) SetFlags(f *flag.FlagSet) {
 	f.StringVar(&c.configFilePath, "c", "", "path to config yaml file")
 	f.StringVar(&c.outFilePath, "o", "", "path to output file path. if you dont't set, just stdout result")
-	f.StringVar(&c.format, "f", "csv", "output data format [csv, json] (default is csv)")
+	f.StringVar(&c.format, "f", "csv", "output data format [csv, json, excel] (default is csv)")
 	f.BoolVar(&c.verbose, "v", false, "if set, stdout debug log messages")
 }
 
@@ -84,8 +87,13 @@ func (c *ResourcesCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interfac
 		fmt.Println("arg '-c path/to/config.yaml' is required")
 		return subcommands.ExitFailure
 	}
-	if c.format != "csv" && c.format != "json" {
-		fmt.Println("allowed values for arg '-f' are [csv, json]")
+	if c.format != "csv" && c.format != "json" && c.format != "excel" {
+		fmt.Println("allowed values for arg '-f' are [csv, json, excel]")
+		return subcommands.ExitFailure
+	}
+	if c.format == "excel" && c.outFilePath == "" {
+		fmt.Println("if format is excel, must specify output file path arg '-o'")
+		return subcommands.ExitFailure
 	}
 
 	if c.verbose {
@@ -114,8 +122,179 @@ func (c *ResourcesCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interfac
 			return subcommands.ExitFailure
 		}
 	}
+	if c.format == "excel" {
+		err = c.DumpExcel(globalViews)
+		if err != nil {
+			return subcommands.ExitFailure
+		}
+	}
 
 	return subcommands.ExitSuccess
+}
+
+func (c *ResourcesCmd) DumpExcel(views []*CfnResourcesView) error {
+	csvViews := []CfnResourcesCsvView{}
+
+	for _, view := range views {
+		var errorString string
+		if view.Error == nil {
+			errorString = ""
+		} else {
+			errorString = view.Error.Error()
+		}
+		if len(view.Resources) == 0 {
+			csvViews = append(csvViews, CfnResourcesCsvView{
+				AccountId:           view.AccountId,
+				AccountName:         view.AccountName,
+				Region:              view.Region,
+				StackName:           view.StackName,
+				ResourcePhysicalId:  "",
+				ResourceLogicalId:   "",
+				ResourceType:        "",
+				ResourceDescription: "",
+				ResourceStatus:      "",
+				ResourceDriftStatus: "",
+				Error:               errorString,
+			})
+		}
+		for _, resource := range view.Resources {
+			csvViews = append(csvViews, CfnResourcesCsvView{
+				AccountId:           view.AccountId,
+				AccountName:         view.AccountName,
+				Region:              view.Region,
+				StackName:           view.StackName,
+				ResourcePhysicalId:  resource.PhysicalId,
+				ResourceLogicalId:   resource.LogicalId,
+				ResourceType:        resource.Type,
+				ResourceDescription: resource.Description,
+				ResourceStatus:      resource.Status,
+				ResourceDriftStatus: resource.DriftStatus,
+				Error:               errorString,
+			})
+		}
+	}
+
+	var file *excelize.File
+	if _, err := os.Stat(c.outFilePath); err == nil {
+		file, err = excelize.OpenFile(c.outFilePath, excelize.Options{})
+		if err != nil {
+			c.logger.Error(err.Error(), err)
+		}
+	} else {
+		file = excelize.NewFile()
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			fmt.Println(err)
+		}
+	}()
+
+	sheetName := c.Name()
+	index, err := file.NewSheet(sheetName)
+	if err != nil {
+		c.logger.Error(err.Error(), err)
+		return err
+	}
+	file.SetActiveSheet(index)
+
+	disable := false
+	numFileds := reflect.TypeOf(csvViews[0]).NumField()
+	startCol := 'B'
+	endCol := startCol + rune(numFileds) - 1
+	startRow := 2
+	endRow := startRow + len(csvViews) - 1
+	startCell := fmt.Sprintf("%s%s", string(startCol), strconv.Itoa(startRow))
+	endCell := fmt.Sprintf("%s%s", string(endCol), strconv.Itoa(endRow))
+
+	// create table
+	err = file.AddTable(sheetName, fmt.Sprintf("%s:%s", startCell, endCell), &excelize.TableOptions{
+		Name:              sheetName,
+		StyleName:         "TableStyleMedium2",
+		ShowFirstColumn:   true,
+		ShowLastColumn:    true,
+		ShowRowStripes:    &disable,
+		ShowColumnStripes: true,
+	})
+	if err != nil {
+		c.logger.Error(err.Error(), err)
+		return err
+	}
+
+	// write table column names
+	curField := 0
+	for curCol := startCol; curCol <= endCol; curCol++ {
+		curCell := fmt.Sprintf("%s%s", string(curCol), strconv.Itoa(startRow))
+		file.SetCellValue(sheetName, curCell, reflect.TypeOf(csvViews[0]).Field(curField).Name)
+		curField++
+	}
+	// write table cell values
+	curRowIndex := 0
+	for curRow := startRow + 1; curRow <= endRow; curRow++ {
+		t := reflect.TypeOf(csvViews[curRowIndex])
+		v := reflect.ValueOf(csvViews[curRowIndex])
+		curColIndex := 0
+		for curCol := startCol; curCol <= endCol; curCol++ {
+			curCell := fmt.Sprintf("%s%s", string(curCol), strconv.Itoa(curRow))
+			curField := t.Field(curColIndex).Name
+			curVal := v.FieldByName(curField).String()
+			file.SetCellValue(sheetName, curCell, curVal)
+			curColIndex++
+		}
+		curRowIndex++
+	}
+
+	// set styles
+	style, err := file.NewStyle(&excelize.Style{
+		Alignment: &excelize.Alignment{
+			ShrinkToFit:     true,
+			Horizontal:      "left",
+			JustifyLastLine: true,
+			WrapText:        true,
+			Vertical:        "center",
+		},
+	})
+	if err != nil {
+		c.logger.Error(err.Error(), err)
+		return err
+	}
+	err = file.SetCellStyle(sheetName, startCell, endCell, style)
+	if err != nil {
+		c.logger.Error(err.Error(), err)
+		return err
+
+	}
+	curField = 0
+	for curCol := startCol; curCol <= endCol; curCol++ {
+
+		maxLength := 0
+		for _, v := range csvViews {
+			if l := len(reflect.ValueOf(v).Field(curField).String()); l > maxLength {
+				maxLength = l
+			}
+		}
+		var colWidth int
+		if maxLength >= 50 {
+			colWidth = 50
+		} else if maxLength <= len(reflect.TypeOf(csvViews[0]).Field(curField).Name) {
+			colWidth = len(reflect.TypeOf(csvViews[0]).Field(curField).Name) + 5
+		} else {
+			colWidth = maxLength
+		}
+		err = file.SetColWidth(sheetName, string(curCol), string(curCol), float64(colWidth))
+		if err != nil {
+			c.logger.Error(err.Error(), err)
+			return err
+		}
+		curField++
+	}
+
+	if err := file.SaveAs(c.outFilePath); err != nil {
+		c.logger.Error(err.Error(), err)
+		return err
+	}
+
+	return nil
+
 }
 
 func (c *ResourcesCmd) DumpCsv(views []*CfnResourcesView) error {

@@ -57,6 +57,51 @@ func TestMain_Parameters_valid_stdout_json(t *testing.T) {
 
 }
 
+func TestMain_Parameters_valid_fileout_excel(t *testing.T) {
+	tmp_excel_path := "tmp.xlsx"
+	defer func() { os.Remove(tmp_excel_path) }()
+	cmd := exec.Command("go", "run", "main.go", "parameters", "-c", "../config/test_config.yaml", "-o", tmp_excel_path, "-f", "excel")
+	_, err := cmd.Output()
+	if err != nil {
+		panic(err)
+	}
+	assert.Nil(t, err)
+
+	_, err = os.Stat(tmp_excel_path)
+	assert.Nil(t, err)
+
+}
+
+func TestMain_Resources_valid_fileout_excel(t *testing.T) {
+	tmp_excel_path := "tmp.xlsx"
+	defer func() { os.Remove(tmp_excel_path) }()
+	cmd := exec.Command("go", "run", "main.go", "resources", "-c", "../config/test_config.yaml", "-o", tmp_excel_path, "-f", "excel")
+	_, err := cmd.Output()
+	if err != nil {
+		panic(err)
+	}
+	assert.Nil(t, err)
+
+	_, err = os.Stat(tmp_excel_path)
+	assert.Nil(t, err)
+
+}
+
+func TestMain_Outputs_valid_fileout_excel(t *testing.T) {
+	tmp_excel_path := "tmp.xlsx"
+	defer func() { os.Remove(tmp_excel_path) }()
+	cmd := exec.Command("go", "run", "main.go", "outputs", "-c", "../config/test_config.yaml", "-o", tmp_excel_path, "-f", "excel")
+	_, err := cmd.Output()
+	if err != nil {
+		panic(err)
+	}
+	assert.Nil(t, err)
+
+	_, err = os.Stat(tmp_excel_path)
+	assert.Nil(t, err)
+
+}
+
 func TestMain_Parameters_invalid_args(t *testing.T) {
 	defer func() { os.Remove(TMP_OUT_PATH) }()
 	cmd := exec.Command("go", "run", "./main.go", "parameters")

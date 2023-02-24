@@ -21,6 +21,7 @@ func init() {
 	subcommands.Register(&cfnSubcommands.ParametersCmd{}, "")
 	subcommands.Register(&cfnSubcommands.ResourcesCmd{}, "")
 	subcommands.Register(&cfnSubcommands.OutputsCmd{}, "")
+	subcommands.Register(&cfnSubcommands.AllCmd{}, "")
 
 	flag.Parse()
 
