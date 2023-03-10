@@ -16,5 +16,7 @@ phases:
     commands:
       - git checkout master
       - git rebase dev
+      - git config user.email horie.takehiro@example.com
+      - git config user.name horie.takehiro
       - git push https://${GITHUB_TOKEN}@github.com/horietakehiro/cfn-global-views.git master 
 
